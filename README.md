@@ -1,110 +1,71 @@
-# Cyberdeck OTA Server
+# TV Remote Control - Vercel + Local Deployment
 
-A lightweight Flask server for ESP32 over-the-air firmware updates.
+A Flask-based remote control for Android TVs using `androidtvremote2`. Runs on both Vercel (serverless) and locally.
 
-## Quick Start
+## Local Setup
 
+### 1. Install Dependencies
 ```bash
 pip install -r requirements.txt
-python app.py
-# Server runs on http://0.0.0.0:5000
 ```
+
+### 2. Run Locally
+```bash
+python main.py
+```
+Open `http://localhost:5000` in your browser.
+
+## Vercel Deployment
+
+### 1. Prerequisites
+- GitHub account with your repo
+- Vercel account (free at https://vercel.com)
+
+### 2. Deploy Steps
+
+**Option A: Using Vercel CLI**
+```bash
+# Install Vercel CLI
+npm install -g vercel
+
+# Deploy from project directory
+vercel
+```
+
+**Option B: Using GitHub Integration**
+1. Push your code to GitHub
+2. Go to https://vercel.com/new
+3. Select your repository
+4. Vercel auto-detects `vercel.json` and deploys
+
+### 3. Environment Variables (Vercel Dashboard)
+If you need to add secrets:
+1. Go to your Vercel project settings
+2. Add environment variables in "Environment Variables" section
+3. Redeploy after adding vars
 
 ## How It Works
 
-### ESP32 Side
-Your device hits the `/ota` endpoint with its current firmware version:
+### Local Execution
+- `main.py` is the entry point
+- Runs Flask development server on `0.0.0.0:5000`
+- Keeps existing asyncio event loop for Android TV connections
 
-```
-GET http://YOUR_SERVER:5000/ota?version=1.00
-```
+### Vercel Execution
+- `api/index.py` imports `app` from `main.py`
+- Vercel serves it as a serverless function
+- Flask handles all HTTP requests
+- Each request gets its own Lambda execution context
 
-**Responses:**
-| Device version | Latest on server | Response                          |
-|---------------|-----------------|-----------------------------------|
-| < latest      | any             | `200` + firmware `.bin` download  |
-| == latest     | any             | `200` + plain text `"Uptodate"`   |
-| any           | none uploaded   | `503` + `"No firmware available"` |
+## Key Files
 
-### Dashboard (`/`)
-- Upload `.bin` files with version numbers
-- Set which version is "latest" (what devices receive)
-- View SHA-256 checksums for integrity verification
-- Delete old builds
+- **`main.py`** - Flask app & business logic
+- **`api/index.py`** - Vercel entry point (imports Flask app)
+- **`vercel.json`** - Vercel build & routing config
+- **`requirements.txt`** - Python dependencies
 
-### JSON Info endpoint (`/ota/info`)
-```json
-{
-  "latest":   "1.02",
-  "sha256":   "abc123...",
-  "size":     278528,
-  "uploaded": "2025-02-21 09:00 UTC",
-  "notes":    "Fixed WiFi reconnect bug"
-}
-```
-Your ESP32 can hit this first to compare SHA before downloading.
+## Notes
 
-## ESP32 Arduino Code
-
-```cpp
-#define FIRMWARE_VERSION "1.00"
-
-#include <HTTPClient.h>
-#include <HTTPUpdate.h>
-
-void checkOTA() {
-  WiFiClient client;
-  String url = "http://YOUR_SERVER_IP:5000/ota?version=" + String(FIRMWARE_VERSION);
-
-  HTTPClient http;
-  http.begin(url);
-  int httpCode = http.GET();
-
-  if (httpCode == HTTP_CODE_OK) {
-    String payload = http.getString();
-    if (payload == "Uptodate") {
-      Serial.println("[OTA] Firmware is current.");
-    } else {
-      Serial.println("[OTA] Update available! Flashing...");
-      http.end();
-      // HTTPUpdate handles download + flash + reboot
-      t_httpUpdate_return ret = httpUpdate.update(client, "YOUR_SERVER_IP", 5000, "/ota?version=" + String(FIRMWARE_VERSION));
-      switch (ret) {
-        case HTTP_UPDATE_FAILED:   Serial.println("[OTA] FAILED"); break;
-        case HTTP_UPDATE_NO_UPDATES: break;
-        case HTTP_UPDATE_OK:       Serial.println("[OTA] OK. Rebooting."); break;
-      }
-    }
-  }
-  http.end();
-}
-```
-
-Call `checkOTA()` at boot, or on a timer.
-
-## File Structure
-
-```
-ota-server/
-├── app.py              ← Flask server (all logic here)
-├── requirements.txt
-├── templates/
-│   └── index.html      ← Web dashboard
-└── firmware/           ← .bin files stored here (auto-created)
-    └── meta.json       ← version registry
-```
-
-## Roadmap
-
-- [ ] Phase 1 (now): REST endpoint + basic dashboard
-- [ ] Phase 2: Multi-device support (different boards / apps)
-- [ ] Phase 3: Full web-based .bin flasher UI (drag & drop, progress bar)
-- [ ] Phase 4: Standalone `.py` desktop app with auto-discovery
-- [ ] Phase 5: Rollback support, staged rollouts, device fleet management
-
-## Deployment Tips
-
-- **Local network**: Run as-is, point ESP at your machine's LAN IP
-- **Public**: Put behind nginx + use HTTPS (important for production OTA)
-- **Persistent**: Run with `gunicorn app:app` or as a systemd service
-- **Docker**: Works fine, just expose port 5000 and mount `./firmware` as a volume
+- Certificates (`cert_*.pem`, `key_*.pem`) and `config.json` are Git-ignored for security
+- Each pairing is device-specific and must be done per deployment
+- On Vercel, certificates persist in the deployment but device discovery only works on your local network
